@@ -5,11 +5,31 @@ import argparse
 import csv
 import json
 import sys
+from pathlib import Path
 from agents.models import SystemTaskPayload
 from agents.supervisor import SystemSupervisor
 from agents.base import AuditLogger
 
 supervisor = SystemSupervisor(model_provider="mock")
+
+
+def _validate_input_path(filepath: str) -> str:
+    """Validate and resolve input file path, preventing path traversal."""
+    resolved = Path(filepath).resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Input file not found: {filepath}")
+    if not resolved.is_file():
+        raise ValueError(f"Path is not a regular file: {filepath}")
+    return str(resolved)
+
+
+def _validate_output_path(filepath: str) -> str:
+    """Validate and resolve output file path, preventing path traversal."""
+    resolved = Path(filepath).resolve()
+    parent = resolved.parent
+    if not parent.exists():
+        raise FileNotFoundError(f"Output directory does not exist: {parent}")
+    return str(resolved)
 
 
 def main(argv=None):
@@ -80,7 +100,9 @@ def main(argv=None):
         return 0
 
     if args.command == "batch":
-        with open(args.input, mode="r", encoding="utf-8-sig") as f:
+        safe_input = _validate_input_path(args.input)
+        safe_output = _validate_output_path(args.output)
+        with open(safe_input, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             fieldnames = list(reader.fieldnames or [])
             rows = list(reader)
@@ -104,11 +126,11 @@ def main(argv=None):
             row_dict["audit_hash"] = dossier.audit_hash
             out_rows.append(row_dict)
 
-        with open(args.output, mode="w", encoding="utf-8", newline="") as f:
+        with open(safe_output, mode="w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=out_fields)
             writer.writeheader()
             writer.writerows(out_rows)
-        print(f"Processed {len(out_rows)} records -> {args.output}")
+        print(f"Processed {len(out_rows)} records -> {safe_output}")
         return 0
 
     if args.command == "serve":

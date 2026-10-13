@@ -82,7 +82,7 @@ class TestFleissKappaCore:
         """Standard error should be non-negative."""
         matrix = [[3, 0, 0]] * 5
         result = fleiss_kappa(matrix)
-        assert result["standard_error"] >= 0
+        assert result["standard_error"] is None  # Undefined when P_e = 1
 
     def test_p_value_range(self):
         """P-value should be in [0, 1]."""
@@ -232,3 +232,50 @@ class TestCLI:
         """Batch with missing input should fail gracefully."""
         with pytest.raises((SystemExit, FileNotFoundError)):
             main(["batch", "-i", "nonexistent.csv"])
+
+class TestStatisticalRegression:
+    """Formula and data-shape regressions for publication-quality outputs."""
+
+    def test_null_standard_error_against_closed_form(self):
+        # Four subjects, three raters, balanced marginals:
+        # P_e=0.5, sum(p_j^3)=0.25, Var0(kappa)=1/12.
+        matrix = [[3, 0], [2, 1], [1, 2], [0, 3]]
+        result = fleiss_kappa(matrix)
+        assert result["kappa"] == pytest.approx(1 / 3, abs=0.0001)
+        assert result["standard_error"] == pytest.approx(math.sqrt(1 / 12), abs=1e-6)
+        assert result["z_score"] == pytest.approx(2 / math.sqrt(3), abs=0.0001)
+        assert result["p_value"] == pytest.approx(0.248213, abs=1e-6)
+
+    @pytest.mark.parametrize("bad", [
+        [[2.5, 0.5], [1.5, 1.5]], [[True, 2], [1, 2]],
+        [[3, "0"], [0, 3]], "not a matrix", [[3, 0], None],
+    ])
+    def test_rejects_noninteger_counts_and_invalid_shapes(self, bad):
+        with pytest.raises(ValueError):
+            fleiss_kappa(bad)
+
+    def test_single_subject_not_reported_as_inferential_test(self):
+        result = fleiss_kappa([[2, 1]])
+        assert result["standard_error"] is None
+        assert result["z_score"] is None
+        assert result["p_value"] is None
+        assert result["inference_note"]
+
+    def test_batch_is_whole_dataset_not_per_row(self, tmp_path):
+        inp = tmp_path / "ratings.csv"
+        out = tmp_path / "aggregate.csv"
+        inp.write_text("ID,cat2,cat1\\nA,0,3\\nB,3,0\\n", encoding="utf-8")
+        process_batch(str(inp), str(out))
+        import csv
+        with out.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        assert len(rows) == 2
+        assert all(float(row["kappa"]) == 1.0 for row in rows)
+        assert all(int(row["n_subjects"]) == 2 for row in rows)
+
+    def test_batch_rejects_bad_counts(self, tmp_path):
+        inp = tmp_path / "ratings.csv"
+        out = tmp_path / "aggregate.csv"
+        inp.write_text("ID,cat1,cat2\\nA,1.5,1.5\\nB,0,3\\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="non-negative integer"):
+            process_batch(str(inp), str(out))

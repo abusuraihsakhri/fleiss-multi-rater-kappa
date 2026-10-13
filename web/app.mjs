@@ -3,6 +3,15 @@ const $=id=>document.getElementById(id);
 const example=$("matrix").value;
 let latest=null;
 const show=(message,ok=false)=>{$("message").textContent=message;$("message").className=ok?"ok":""};
+const fail=message=>{
+  latest=null;$("export").disabled=true;
+  for(const key of ["kappa","observed_agreement","chance_agreement","standard_error","p_value","interpretation"]){
+    $(key).textContent="—";
+  }
+  $("subjects").textContent="Subjects: —";$("raters").textContent="Raters: —";
+  $("categories").textContent="Categories: —";$("zscore").textContent="z: —";
+  show(message);
+};
 const fmt=(value,digits=4)=>value==null?"N/A":Number(value).toFixed(digits);
 function calculate(matrix) {
   latest=calculateKappa(matrix);
@@ -20,18 +29,18 @@ function calculate(matrix) {
 }
 $("calculate").addEventListener("click",()=>{
   try {calculate(JSON.parse($("matrix").value));}
-  catch(e){show(e instanceof Error?e.message:"Invalid input");}
+  catch(e){fail(e instanceof Error?e.message:"Invalid input");}
 });
 $("example").addEventListener("click",()=>{$("matrix").value=example;$("csv").value="";$("calculate").click()});
 $("csv").addEventListener("change",async e=>{
   const file=e.target.files?.[0];
   if(!file)return;
-  if(file.size>1024*1024){show("CSV exceeds 1 MB limit.");return;}
+  if(file.size>1024*1024){fail("CSV exceeds 1 MB limit.");return;}
   try {
     const {matrix}=parseCSV(await file.text());
     $("matrix").value=JSON.stringify(matrix);
     calculate(matrix);
-  } catch(err){show(err instanceof Error?err.message:"Could not parse CSV");}
+  } catch(err){fail(err instanceof Error?err.message:"Could not parse CSV");}
 });
 $("export").addEventListener("click",()=>{
   if(!latest)return;

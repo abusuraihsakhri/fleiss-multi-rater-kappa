@@ -127,7 +127,7 @@ def fleiss_kappa(matrix: List[List[int]]) -> Dict[str, Any]:
         "kappa": round(kappa, 4),
         "standard_error": round(se, 6) if se is not None else None,
         "z_score": round(z, 4) if z is not None else None,
-        "p_value": round(p_value, 6) if p_value is not None else None,
+        "p_value": p_value,
         "observed_agreement": round(P_bar, 4),
         "chance_agreement": round(P_e, 4),
         "n_subjects": n_subjects,

@@ -63,3 +63,39 @@ def test_supervisor_consensus_and_audit():
     assert main(["audit", "--task-id", "CLI-TEST-01"]) == 0
     assert main(["chat", "Explain", "specifications"]) == 0
     assert main(["verify-audit"]) == 0
+
+def test_audit_chain_detects_signature_tampering():
+    from agents.base import AuditTrail
+    log = AuditTrail(secret_key="test-only-nonproduction-key")
+    log.log("operator", "unit-test", "created", {"value": "a"})
+    log.log("operator", "unit-test", "updated", {"value": "b"})
+    assert log.verify_integrity()
+    snapshot = log.get_trail()
+    snapshot[0]["event_type"] = "tampered-copy"
+    assert log.verify_integrity()
+    log.logs[0]["event_type"] = "tampered-live-record"
+    assert not log.verify_integrity()
+
+def test_supervisor_batch_false_flag_is_not_critical(tmp_path):
+    import csv
+    inp = tmp_path / "tasks.csv"
+    out = tmp_path / "results.csv"
+    inp.write_text(
+        "task_id,target_identifier,primary_metric,secondary_metric,status_descriptor,is_critical_flag\n"
+        "T1,SPECIMEN-01,5,2,NOMINAL,false\n",
+        encoding="utf-8",
+    )
+    assert main(["batch", "-i", str(inp), "-o", str(out)]) == 0
+    with out.open(newline="", encoding="utf-8") as f:
+        row = next(csv.DictReader(f))
+    assert row["overall_urgency"] == "ROUTINE"
+
+
+def test_kappa_api_computes_actual_agreement_and_rejects_invalid():
+    from fastapi import HTTPException
+    from agents.api import KappaRequest, api_kappa
+    result = api_kappa(KappaRequest(matrix=[[3, 0], [0, 3]]))
+    assert result["kappa"] == 1.0
+    with pytest.raises(HTTPException) as exc:
+        api_kappa(KappaRequest(matrix=[[2, 1], [3, 1]]))
+    assert exc.value.status_code == 422

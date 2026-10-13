@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from .base import AuditLogger, PHIGuard
 from .models import SystemTaskPayload, ConsensusDossier
 from .supervisor import SystemSupervisor
+from fleiss_kappa import fleiss_kappa
 
 supervisor = SystemSupervisor(model_provider="mock")
 
@@ -15,6 +16,10 @@ app = FastAPI(
     description="Enterprise Distributed Component Platform (Clinical & Biomedical AI)",
     version="3.0.0-ENTERPRISE",
 )
+
+
+class KappaRequest(BaseModel):
+    matrix: List[List[int]]
 
 
 class ChatRequest(BaseModel):
@@ -33,6 +38,14 @@ def metrics():
         "audit_blocks_total": len(AuditLogger.get_trail()),
         "system_status": "NOMINAL_OPTIMAL"
     }
+
+
+@app.post("/api/kappa")
+def api_kappa(payload: KappaRequest):
+    try:
+        return fleiss_kappa(payload.matrix)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/audit")

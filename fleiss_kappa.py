@@ -40,32 +40,30 @@ def fleiss_kappa(matrix: List[List[int]]) -> Dict[str, Any]:
     Raises:
         ValueError: If matrix is empty, has inconsistent column counts, or rater counts vary.
     """
-    if not matrix or not matrix[0]:
+    if not isinstance(matrix, (list, tuple)) or not matrix:
+        raise ValueError("Rating matrix must not be empty")
+    if not isinstance(matrix[0], (list, tuple)) or not matrix[0]:
         raise ValueError("Rating matrix must not be empty")
 
     n_subjects = len(matrix)
     n_categories = len(matrix[0])
-
     if n_categories < 2:
         raise ValueError("At least 2 categories are required")
 
-    # Validate consistent number of categories per subject
     for i, row in enumerate(matrix):
+        if not isinstance(row, (list, tuple)):
+            raise ValueError(f"Row {i} must be a sequence of integer counts")
         if len(row) != n_categories:
             raise ValueError(
                 f"Inconsistent category count: row 0 has {n_categories}, "
                 f"row {i} has {len(row)}"
             )
-
-    # Check all counts are non-negative (before computing sums)
-    for i, row in enumerate(matrix):
         for j, count in enumerate(row):
+            if isinstance(count, bool) or not isinstance(count, int):
+                raise ValueError(f"Non-integer count at row {i}, column {j}: {count!r}")
             if count < 0:
-                raise ValueError(
-                    f"Negative count at row {i}, column {j}: {count}"
-                )
+                raise ValueError(f"Negative count at row {i}, column {j}: {count}")
 
-    # Determine number of raters (should be consistent across subjects)
     n_raters_per_subject = [sum(row) for row in matrix]
     if len(set(n_raters_per_subject)) > 1:
         raise ValueError(
@@ -73,7 +71,6 @@ def fleiss_kappa(matrix: List[List[int]]) -> Dict[str, Any]:
             "All subjects must be rated by the same number of raters."
         )
     n_raters = n_raters_per_subject[0]
-
     if n_raters < 2:
         raise ValueError("At least 2 raters are required")
 
@@ -95,64 +92,49 @@ def fleiss_kappa(matrix: List[List[int]]) -> Dict[str, Any]:
     # P_e: expected agreement by chance = sum_j(p_j^2)
     P_e = sum(pj ** 2 for pj in p)
 
-    # Fleiss' kappa
-    if abs(1.0 - P_e) < 1e-12:
-        # All raters assigned everyone to the same category
-        kappa = 1.0 if abs(P_bar - 1.0) < 1e-12 else 0.0
+    # Degenerate marginals have P_e = 1, so the mathematical coefficient
+    # is 0/0. Preserve the historical unanimous kappa=1 convention but
+    # do not present a fabricated significance test.
+    degenerate = math.isclose(P_e, 1.0, rel_tol=0.0, abs_tol=1e-12)
+    if degenerate:
+        kappa = 1.0
     else:
         kappa = (P_bar - P_e) / (1.0 - P_e)
 
-    # Standard error calculation
-    # Handle edge case where P_e = 1 (all raters assign all subjects to same category)
-    if abs(1.0 - P_e) < 1e-12:
-        # Perfect agreement case: SE is 0 (deterministic)
-        se = 0.0
-        z = float('inf') if kappa > 0 else 0.0
-        p_value = 0.0 if kappa > 0 else 1.0
+    # Fleiss, Nee & Landis (1979): asymptotic variance UNDER H0: kappa=0.
+    # This is not a general standard error for confidence intervals.
+    # Hypothesis testing is not supported on a single subject or when
+    # category marginals are degenerate.
+    se = z = p_value = None
+    inference_note = None
+    if degenerate:
+        inference_note = "Kappa is a unanimous-agreement convention (P_e=1); inference is undefined."
+    elif n_subjects < 2:
+        inference_note = "At least two independent subjects are needed for inference."
     else:
-        # Variance of kappa using Fleiss et al. (2003) formulation
-        theta1 = P_bar
-        theta2 = P_e
-        theta3 = sum(
-            (p[j] ** 2) * (1.0 - 2.0 * p[j]) for j in range(n_categories)
-        ) / (n_subjects * n_raters * (n_raters - 1))
-
-        denominator = n_subjects * n_raters * (n_raters - 1) * (1.0 - theta2) ** 4
-        if denominator > 0:
-            var_kappa = (
-                2.0 * (
-                    (1.0 - theta2) ** 2 * theta3
-                    - (theta2 - 2.0 * theta1 * (1.0 - theta2) + theta1 ** 2 * (1.0 - theta2) ** 2)
-                )
-            ) / denominator
-        else:
-            var_kappa = 0.0
-
-        # Fallback to simple SE if variance computation yields non-positive
-        if var_kappa <= 0:
-            se = math.sqrt(2.0 / (n_subjects * n_raters * (n_raters - 1)))
-        else:
-            se = math.sqrt(var_kappa)
-
-        # Z-score and p-value
-        if se > 0:
+        sum_p3 = sum(pj ** 3 for pj in p)
+        numerator = 2.0 * (P_e + P_e ** 2 - 2.0 * sum_p3)
+        denominator = n_subjects * n_raters * (n_raters - 1) * (1.0 - P_e) ** 2
+        null_var = numerator / denominator
+        if null_var > 0:
+            se = math.sqrt(null_var)
             z = kappa / se
-            p_value = 2.0 * (1.0 - _norm_cdf(abs(z)))
+            p_value = math.erfc(abs(z) / math.sqrt(2.0))
         else:
-            z = float('inf') if kappa > 0 else float('-inf') if kappa < 0 else 0.0
-            p_value = 0.0 if kappa != 0 else 1.0
+            inference_note = "Null variance is zero; z statistic and p-value are undefined."
 
     return {
         "kappa": round(kappa, 4),
-        "standard_error": round(se, 4),
-        "z_score": round(z, 4),
-        "p_value": round(p_value, 4),
+        "standard_error": round(se, 6) if se is not None else None,
+        "z_score": round(z, 4) if z is not None else None,
+        "p_value": p_value,
         "observed_agreement": round(P_bar, 4),
         "chance_agreement": round(P_e, 4),
         "n_subjects": n_subjects,
         "n_categories": n_categories,
         "n_raters": n_raters,
         "interpretation": _interpret_kappa(kappa),
+        "inference_note": inference_note,
     }
 
 
@@ -255,67 +237,57 @@ def process_single(args) -> None:
 
 
 def process_batch(input_csv: str, output_csv: str) -> None:
+    """Calculate one dataset-level kappa across all CSV subject rows.
+
+    Category columns must be named cat1, cat2, ... (also c1 or v1 for
+    backwards compatibility). The aggregate result is repeated in each
+    output row so original record IDs remain accessible.
+    """
+    import re
+
     input_path = _validate_file_path(input_csv, must_exist=True)
     output_path = _validate_file_path(output_csv)
-
-    with open(input_path, mode="r", encoding="utf-8-sig") as f:
+    with open(input_path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
 
-    out_fields = fieldnames + ["kappa", "standard_error", "z_score", "p_value",
-                                "observed_agreement", "chance_agreement",
-                                "interpretation", "n_raters"]
-    out_rows = []
+    if not rows:
+        raise ValueError("Input CSV contains no subject rows")
+    if len(set(fieldnames)) != len(fieldnames):
+        raise ValueError("Input CSV contains duplicate column names")
 
-    for r in rows:
-        # Build rating matrix from row data
-        # Expect columns named cat1, cat2, ... or v1, v2, ... or numeric columns
-        matrix_row = []
-        for key in sorted(r.keys()):
-            val = r[key]
-            try:
-                ival = int(float(val))
-                if ival >= 0:
-                    matrix_row.append(ival)
-            except (ValueError, TypeError):
-                pass
+    category_columns = []
+    for name in fieldnames:
+        match = re.fullmatch(r"(?:cat|c|v)([1-9][0-9]*)", name, flags=re.IGNORECASE)
+        if match:
+            category_columns.append((int(match.group(1)), name))
+    category_columns.sort(key=lambda pair: pair[0])
+    if len(category_columns) < 2 or len({number for number, _ in category_columns}) != len(category_columns):
+        raise ValueError("CSV requires at least two uniquely numbered category columns (cat1, cat2, ...)")
 
-        if len(matrix_row) >= 2:
-            try:
-                calc_res = fleiss_kappa([matrix_row])
-            except ValueError:
-                calc_res = {"error": "Invalid matrix row"}
-        else:
-            calc_res = {"error": "Insufficient category columns"}
+    matrix = []
+    for i, row in enumerate(rows, start=2):
+        counts = []
+        for _, name in category_columns:
+            value = (row.get(name) or "").strip()
+            if not value.isdecimal():
+                raise ValueError(f"Row {i}, column {name}: expected a non-negative integer count")
+            counts.append(int(value))
+        matrix.append(counts)
 
-        row_dict = dict(r)
-        if "error" in calc_res:
-            row_dict["kappa"] = ""
-            row_dict["standard_error"] = ""
-            row_dict["z_score"] = ""
-            row_dict["p_value"] = ""
-            row_dict["observed_agreement"] = ""
-            row_dict["chance_agreement"] = ""
-            row_dict["interpretation"] = calc_res["error"]
-            row_dict["n_raters"] = ""
-        else:
-            row_dict["kappa"] = calc_res["kappa"]
-            row_dict["standard_error"] = calc_res["standard_error"]
-            row_dict["z_score"] = calc_res["z_score"]
-            row_dict["p_value"] = calc_res["p_value"]
-            row_dict["observed_agreement"] = calc_res["observed_agreement"]
-            row_dict["chance_agreement"] = calc_res["chance_agreement"]
-            row_dict["interpretation"] = calc_res["interpretation"]
-            row_dict["n_raters"] = calc_res["n_raters"]
-        out_rows.append(row_dict)
-
+    result = fleiss_kappa(matrix)
+    result_fields = [
+        "kappa", "standard_error", "z_score", "p_value", "observed_agreement",
+        "chance_agreement", "n_subjects", "n_raters", "interpretation", "inference_note",
+    ]
+    out_fields = list(dict.fromkeys(fieldnames + result_fields))
     with open(output_path, mode="w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=out_fields)
         writer.writeheader()
-        writer.writerows(out_rows)
-
-    print(f"Processed {len(out_rows)} records -> {output_csv}")
+        for row in rows:
+            writer.writerow({**row, **{field: result[field] for field in result_fields}})
+    print(f"Processed {len(rows)} subjects -> {output_csv} (dataset kappa={result['kappa']})")
 
 
 def main(argv=None):

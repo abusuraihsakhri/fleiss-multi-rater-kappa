@@ -1,5 +1,7 @@
 # Fleiss' Multi-Rater Kappa
 
+### [Open the Live Application →](https://abusuraihsakhri.github.io/fleiss-multi-rater-kappa/)
+
 Calculate Fleiss' generalized kappa for nominal-category agreement among multiple raters. Each subject has one row of **non-negative integer category counts**; every subject must have the same number of raters (at least two).
 
 ## Features
@@ -15,13 +17,13 @@ Calculate Fleiss' generalized kappa for nominal-category agreement among multipl
 
 ## Live browser calculator
 
-The repository includes a static application under `web/` suitable for GitHub Pages. On a local machine:
+The GitHub Pages workflow publishes the static application from `web/`. The browser calculator needs no backend and operates on data locally. For local development:
 
 ```bash
 python -m http.server 8080 --directory web
 ```
 
-Open http://localhost:8080/ and paste a JSON count matrix or upload a CSV file. Data stays in the browser; no network API is required. The production Pages deployment depends on the repository's GitHub Pages settings and workflow status.
+Open http://localhost:8080/ and paste a JSON count matrix or upload a CSV file. Data stays in the browser; no network API is required. The live URL above was reported by the successful GitHub Pages deployment.
 
 ## Python and CLI
 

@@ -264,7 +264,7 @@ class TestStatisticalRegression:
     def test_batch_is_whole_dataset_not_per_row(self, tmp_path):
         inp = tmp_path / "ratings.csv"
         out = tmp_path / "aggregate.csv"
-        inp.write_text("ID,cat2,cat1\\nA,0,3\\nB,3,0\\n", encoding="utf-8")
+        inp.write_text("ID,cat2,cat1\nA,0,3\nB,3,0\n", encoding="utf-8")
         process_batch(str(inp), str(out))
         import csv
         with out.open(newline="", encoding="utf-8") as fh:
@@ -276,6 +276,6 @@ class TestStatisticalRegression:
     def test_batch_rejects_bad_counts(self, tmp_path):
         inp = tmp_path / "ratings.csv"
         out = tmp_path / "aggregate.csv"
-        inp.write_text("ID,cat1,cat2\\nA,1.5,1.5\\nB,0,3\\n", encoding="utf-8")
+        inp.write_text("ID,cat1,cat2\nA,1.5,1.5\nB,0,3\n", encoding="utf-8")
         with pytest.raises(ValueError, match="non-negative integer"):
             process_batch(str(inp), str(out))

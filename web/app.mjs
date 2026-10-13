@@ -16,7 +16,8 @@ const fmt=(value,digits=4)=>value==null?"N/A":Number(value).toFixed(digits);
 function calculate(matrix) {
   latest=calculateKappa(matrix);
   for(const key of ["kappa","observed_agreement","chance_agreement","standard_error","p_value"]){
-    $(key).textContent=fmt(latest[key],key==="p_value"?6:4);
+    $(key).textContent=key==="p_value" && latest[key]>0 && latest[key]<0.000001
+      ? "<0.000001" : fmt(latest[key],key==="p_value"?6:4);
   }
   $("interpretation").textContent=latest.interpretation;
   $("subjects").textContent="Subjects: "+latest.n_subjects;

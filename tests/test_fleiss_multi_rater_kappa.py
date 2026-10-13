@@ -63,3 +63,15 @@ def test_supervisor_consensus_and_audit():
     assert main(["audit", "--task-id", "CLI-TEST-01"]) == 0
     assert main(["chat", "Explain", "specifications"]) == 0
     assert main(["verify-audit"]) == 0
+
+def test_audit_chain_detects_signature_tampering():
+    from agents.base import AuditTrail
+    log = AuditTrail(secret_key="test-only-nonproduction-key")
+    log.log("operator", "unit-test", "created", {"value": "a"})
+    log.log("operator", "unit-test", "updated", {"value": "b"})
+    assert log.verify_integrity()
+    snapshot = log.get_trail()
+    snapshot[0]["event_type"] = "tampered-copy"
+    assert log.verify_integrity()
+    log.logs[0]["event_type"] = "tampered-live-record"
+    assert not log.verify_integrity()

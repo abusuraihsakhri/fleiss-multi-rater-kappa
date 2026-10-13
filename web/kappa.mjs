@@ -42,9 +42,10 @@ export function calculateKappa(matrix) {
       const x = Math.abs(z_score) / Math.SQRT2;
       // Hastings approximation to erfc; adequate for display and tests.
       const t = 1/(1+0.3275911*x);
-      const erf = 1 - (((((1.061405429*t - 1.453152027)*t) +
-        1.421413741)*t - 0.284496736)*t + 0.254829592)*t)*Math.exp(-x*x);
-      p_value = Math.min(1, Math.max(0, 1-erf));
+      const poly = ((((1.061405429*t - 1.453152027)*t +
+        1.421413741)*t - 0.284496736)*t + 0.254829592)*t;
+      p_value = Math.min(1, Math.max(0, poly*Math.exp(-x*x)));
+
     } else inference_note = "Null variance is zero; z and p are undefined.";
   }
   const interpretation = kappa < 0 ? "Poor" : kappa <= .2 ? "Slight" :

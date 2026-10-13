@@ -1,179 +1,83 @@
-# Fleiss Multi Rater Kappa
+# Fleiss' Multi-Rater Kappa
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?logo=python&logoColor=white)
+Calculate Fleiss' generalized kappa for nominal-category agreement among multiple raters. Each subject has one row of **non-negative integer category counts**; every subject must have the same number of raters (at least two).
 
-> **Domain:** Clinical Decision Support & Inter-Observer Agreement Analysis
+## Features
 
-## What It Does
+- Browser calculator and CSV upload/export, without any server or third-party JavaScript dependencies
+- Python function and command-line interface for count matrices
+- Dataset-level CSV aggregation, with each subject's identifier retained in exported records
+- Observed agreement, chance agreement, Fleiss' kappa, and descriptive Landis–Koch interpretation
+- Null-hypothesis standard error, z-statistic and two-sided p-value for H₀: κ = 0 where defined
+- Optional FastAPI service and an independent, generic task-audit subsystem
 
-Computes **Fleiss' generalized kappa coefficient** for measuring inter-rater agreement among multiple raters across categorical items. The implementation provides:
+**Statistical caveat:** The reported standard error is the Fleiss–Nee–Landis *null* variance (1979). It is appropriate for the large-sample test of κ = 0, **not** for confidence intervals about an estimated nonzero κ. Results from small numbers of subjects require particular caution. If all ratings fall in one category, the code retains a legacy κ = 1 convention but reports inferential quantities as unavailable because the coefficient has a zero denominator mathematically. Interpretation bands are descriptive, not diagnostic thresholds.
 
-- **Fleiss' kappa coefficient** (-1 to 1 scale)
-- **Standard error** of the estimate
-- **Z-score** for hypothesis testing
-- **Two-tailed p-value** for statistical significance
-- **Observed vs. chance-corrected agreement** metrics
-- **Landis & Koch interpretation** (Poor to Almost Perfect)
+## Live browser calculator
 
-Zero-dependency Python implementation with single evaluation, batch CSV processing, and CLI/API interfaces.
-
-Author: Dr. Abu Suraih Sakhri
-License: MIT
-
----
-
-## Installation
+The repository includes a static application under `web/` suitable for GitHub Pages. On a local machine:
 
 ```bash
-pip install -r requirements.txt
+python -m http.server 8080 --directory web
 ```
 
-Or with Docker:
+Open http://localhost:8080/ and paste a JSON count matrix or upload a CSV file. Data stays in the browser; no network API is required. The production Pages deployment depends on the repository's GitHub Pages settings and workflow status.
+
+## Python and CLI
+
+The **kappa calculation itself uses only the Python standard library** (Python 3.10+).
+
 ```bash
-docker-compose up --build
+python fleiss_kappa.py calc '[[3,0,0],[2,1,0],[0,3,0],[1,2,0]]'
+python fleiss_kappa.py batch -i sample.csv -o results.csv
 ```
-
----
-
-## Usage
-
-### Python API
 
 ```python
 from fleiss_kappa import fleiss_kappa
 
-# 10 subjects, 3 raters, 3 categories
-# matrix[i][j] = number of raters who assigned subject i to category j
-matrix = [
-    [3, 0, 0],  # All 3 raters agree on category 0
-    [2, 1, 0],  # 2 raters category 0, 1 rater category 1
-    [0, 3, 0],  # All 3 raters agree on category 1
-]
-
+matrix = [[3, 0, 0], [2, 1, 0], [0, 3, 0], [1, 2, 0]]
 result = fleiss_kappa(matrix)
-print(f"Kappa: {result['kappa']}")
-print(f"Interpretation: {result['interpretation']}")
-print(f"95% CI: {result['kappa']:.3f} +/- {1.96 * result['standard_error']:.3f}")
+print(result["kappa"], result["p_value"])
 ```
 
-### CLI Usage
+For batch input, include `cat1,cat2,...` columns (also `c1,c2,...` or `v1,v2,...`). Each CSV row is one subject. The output repeats the **one dataset-level statistic** alongside each source row to preserve identifiers. Fractional counts, unequal rater totals, and unnumbered category columns are rejected. `sample.csv` contains valid count data.
+
+The legacy `fleiss_kappa.py single` numeric scoring interface remains for compatibility, but **its score and clinical tier are unrelated to Fleiss' kappa**. Use `calc` or `batch` for statistical analysis.
+
+## Optional service and supervisor
 
 ```bash
-# Direct matrix calculation
-python fleiss_kappa.py calc '[[3,0,0],[2,1,0],[0,3,0]]'
-
-# Single evaluation (legacy interface)
-python fleiss_kappa.py single
-
-# Batch CSV processing
-python fleiss_kappa.py batch -i sample.csv -o results.csv
-
-# Full supervisor system CLI
-python cli.py audit --task-id "TASK-01" --primary 14.5 --secondary 4.2
-python cli.py batch -i sample.csv -o results.csv
-python cli.py verify-audit
+python -m pip install -r requirements.txt
 python cli.py serve --host 127.0.0.1 --port 8000
 ```
 
-### Input Data Format (Batch CSV)
+Send `POST /api/kappa` with `{"matrix":[[3,0],[0,3]]}` to calculate the coefficient; `GET /health` is available. The separate `python cli.py audit`, `python cli.py batch -i sample_tasks.csv`, and `/api/audit` endpoints use a generic rules-based task supervisor. **They do not compute Fleiss' kappa or implement validated CAP/CLSI clinical decision logic.** The chat interface is deterministic mock text, not a connection to a language model. `sample_tasks.csv` demonstrates its distinct input schema.
 
-CSV file where each row represents a subject and each numeric column represents a category count:
+## Privacy and security
 
-```csv
-Patient_ID,cat1,cat2,cat3
-PT-101,3,0,0
-PT-102,1,2,0
-PT-103,0,0,3
-```
+The static application computes locally and does not transmit uploaded content. The FastAPI service processes submitted data and has **no authentication or access control**; bind it to localhost unless deployment security is supplied separately. The optional supervisor uses pattern-based identifier checks, which **cannot reliably de-identify or detect all protected health information**. Do not submit patient-identifiable data. The supervisor audit trail is an **in-memory**, HMAC-SHA256-signed chain (key from `AUDIT_SECRET_KEY` or a random process-local key); verification checks both signatures and links. It is not persistent, independently anchored, or compliance certification.
 
----
-
-## Mathematical Formulation
-
-Fleiss' kappa measures agreement among **m** raters across **k** categories for **n** subjects:
-
-```
-κ = (P̄ - P̄e) / (1 - P̄e)
-```
-
-Where:
-- **P̄** = observed agreement = (1/n) Σᵢ Pᵢ
-- **Pᵢ** = (1/(m(m-1))) Σⱼ nᵢⱼ(nᵢⱼ - 1) for subject i
-- **P̄e** = chance agreement = Σⱼ pⱼ²
-- **pⱼ** = (1/(nm)) Σᵢ nᵢⱼ
-
-Interpretation scale (Landis & Koch, 1977):
-| Kappa Range | Interpretation |
-|-------------|----------------|
-| < 0.00 | Poor |
-| 0.00 - 0.20 | Slight |
-| 0.21 - 0.40 | Fair |
-| 0.41 - 0.60 | Moderate |
-| 0.61 - 0.80 | Substantial |
-| 0.81 - 1.00 | Almost Perfect |
-
----
-
-## Security Features
-
-- **PHI Outbound Guard:** AST and regex inspection blocking SSNs, MRNs, phone numbers, and patient identifiers
-- **HMAC-SHA256 Audit Trail:** Chained, cryptographically signed logs for every evaluation
-- **Path Traversal Protection:** Input file paths are validated and resolved
-- **Secure Key Generation:** Audit keys are randomly generated per deployment (configurable via `AUDIT_SECRET_KEY` env var)
-
----
-
-## Testing
-
-Run the automated test suite:
+## Development and testing
 
 ```bash
-pytest -v
+python -m pip install -r requirements.txt
+python -m pytest -q
+node --test tests/test_browser.mjs
 ```
 
-Execute high-throughput batch simulation benchmarks:
+No bundler is needed for the static app. The browser uses modern JavaScript modules and file APIs (recent Chrome, Firefox, Safari and Edge). CI runs Python 3.10–3.12 and Node browser-module tests.
 
-```bash
-python simulator.py 1000
-```
+## Mathematical reference
 
----
+For `N` subjects, `m` ratings per subject, and `K` categories:
 
-## Container Deployment
+- `P_i = Σ_j n_ij(n_ij − 1) / [m(m − 1)]`
+- `P̄ = Σ_i P_i / N`; `p_j = Σ_i n_ij / (Nm)`
+- `P_e = Σ_j p_j²`; `κ = (P̄ − P_e) / (1 − P_e)`
+- `Var₀(κ) = 2[P_e + P_e² − 2Σ_j p_j³] / [Nm(m−1)(1−P_e)²]`
 
-```bash
-docker build -t fleiss-multi-rater-kappa .
-docker run -p 8000:8000 fleiss-multi-rater-kappa
-```
+References: Fleiss JL. *Psychological Bulletin* (1971), DOI: [10.1037/h0031619](https://doi.org/10.1037/h0031619); Fleiss JL, Nee JC, Landis JR. *Psychological Bulletin* (1979), DOI: [10.1037/0033-2909.86.5.974](https://doi.org/10.1037/0033-2909.86.5.974).
 
-Or with docker-compose:
-```bash
-docker-compose up
-```
+## License
 
----
-
-## Project Structure
-
-```
-fleiss-multi-rater-kappa/
-├── fleiss_kappa.py      # Core kappa algorithm + CLI
-├── cli.py               # Supervisor system CLI with audit/PHI guard
-├── agents/
-│   ├── base.py          # Security, PHI guard, HMAC audit trail
-│   ├── models.py        # Pydantic data models
-│   ├── supervisor.py    # Multi-worker orchestration
-│   ├── workers.py       # Specialized evaluation workers
-│   ├── api.py           # FastAPI REST endpoints
-│   ├── metrics.py       # Prometheus metrics collector
-│   ├── learning.py      # Bayesian calibration engine
-│   └── streamer.py      # WebSocket telemetry
-├── enrichment.py        # Extended feature engines
-├── simulator.py         # Stress testing simulator
-├── tests/               # Test suite
-├── sample.csv           # Example input data
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
-```
+MIT — see [LICENSE](LICENSE).
